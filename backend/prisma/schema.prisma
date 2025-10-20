@@ -1,0 +1,65 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model users {
+  id              Int      @id @default(autoincrement())
+  username        String?
+  password        String
+  email           String   @unique
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  orders          orders[]
+}
+
+model genres {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  deleted_at  DateTime?
+  books       books[]
+}
+
+model books {
+  id                Int      @id @default(autoincrement())
+  title             String   @unique
+  writer            String
+  publisher         String
+  publication_year  Int
+  description       String?
+  price             Decimal
+  stock_quantity    Int
+  genre_id          Int
+  genre             genres   @relation(fields: [genre_id], references: [id])
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+  deleted_at        DateTime?
+  order_items       order_items[]
+}
+
+model orders {
+  id          Int      @id @default(autoincrement())
+  user_id     Int
+  user        users    @relation(fields: [user_id], references: [id])
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+  order_items order_items[]
+}
+
+model order_items {
+  id          Int      @id @default(autoincrement())
+  quantity    Int
+  order_id    Int
+  book_id     Int
+  order       orders   @relation(fields: [order_id], references: [id])
+  book        books    @relation(fields: [book_id], references: [id])
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+}
