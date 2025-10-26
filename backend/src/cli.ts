@@ -68,26 +68,16 @@ class BookStoreCLI {
   }
 
   private error(message: string): void {
-<<<<<<< HEAD
-    console.log('\nError: ' + message);
-  }
-
-  private success(message: string): void {
-    console.log('\n' + message);
-=======
     console.log("\n❌ Error: " + message);
   }
 
   private success(message: string): void {
     console.log("\n✅ " + message);
->>>>>>> b6f7a2c47a6e9214209efa3f970b8271e7b4c510
   }
 
   private setAuthHeader(): void {
     if (this.token) {
-      this.api.defaults.headers.common[
-        "Authorization"
-      ] = `Bearer ${this.token}`;
+      this.api.defaults.headers.common["Authorization"] = `Bearer ${this.token}`;
     }
   }
 
@@ -95,9 +85,7 @@ class BookStoreCLI {
     this.log("=== REGISTER ===");
     const email = await this.prompt("Email: ");
     const password = await this.prompt("Password: ");
-    const username = await this.prompt(
-      "Username (optional, press Enter to skip): "
-    );
+    const username = await this.prompt("Username (optional, press Enter to skip): ");
 
     try {
       const res = await this.api.post("/auth/register", {
@@ -122,8 +110,9 @@ class BookStoreCLI {
       this.token = res.data.data.token;
       this.currentUser = res.data.data.user;
       this.setAuthHeader();
+      
       this.success(`Logged in as ${this.currentUser!.email}`);
-      this.success(`token ${this.token}`);
+      this.log(`🎫 Your Token:\n${this.token}`);
     } catch (err: any) {
       this.error(err.response?.data?.message || "Login failed");
     }
@@ -145,11 +134,7 @@ class BookStoreCLI {
     try {
       const res = await this.api.get("/auth/me");
       const user = res.data.data;
-      this.log(
-        `=== PROFILE ===\nID: ${user.id}\nEmail: ${user.email}\nUsername: ${
-          user.username || "-"
-        }`
-      );
+      this.log(`=== PROFILE ===\nID: ${user.id}\nEmail: ${user.email}\nUsername: ${user.username || "-"}`);
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to get profile");
     }
@@ -229,14 +214,8 @@ class BookStoreCLI {
       return;
     }
 
-<<<<<<< HEAD
-    this.log('=== CREATE BOOK ===');
-    
-=======
     this.log("=== CREATE BOOK ===");
 
-    // Fetch genres untuk dipilih
->>>>>>> b6f7a2c47a6e9214209efa3f970b8271e7b4c510
     let genres: Genre[] = [];
     try {
       const res = await this.api.get("/genre");
@@ -251,45 +230,22 @@ class BookStoreCLI {
       return;
     }
 
-<<<<<<< HEAD
-    this.log('Available Genres:');
-=======
-    // Tampilkan daftar genre
     this.log("Available Genres:");
->>>>>>> b6f7a2c47a6e9214209efa3f970b8271e7b4c510
     genres.forEach((g, idx) => {
       console.log(`${idx + 1}. ${g.name}`);
     });
 
-    const genreInput = await this.prompt(
-      "Select genre (by number 1/2/3... or by name): "
-    );
+    const genreInput = await this.prompt("Select genre (by number or by name): ");
 
     let genreId: string | null = null;
     let selectedGenreName: string | null = null;
 
     const genreNumber = parseInt(genreInput);
-<<<<<<< HEAD
     if (!isNaN(genreNumber) && genreNumber > 0 && genreNumber <= genres.length) {
       genreId = genres[genreNumber - 1].id;
       selectedGenreName = genres[genreNumber - 1].name;
     } else {
-      const foundGenre = genres.find(g => g.name.toLowerCase() === genreInput.toLowerCase());
-=======
-    if (
-      !isNaN(genreNumber) &&
-      genreNumber > 0 &&
-      genreNumber <= genres.length
-    ) {
-      // Input adalah nomor
-      genreId = genres[genreNumber - 1].id;
-      selectedGenreName = genres[genreNumber - 1].name;
-    } else {
-      // Input adalah string (nama genre)
-      const foundGenre = genres.find(
-        (g) => g.name.toLowerCase() === genreInput.toLowerCase()
-      );
->>>>>>> b6f7a2c47a6e9214209efa3f970b8271e7b4c510
+      const foundGenre = genres.find((g) => g.name.toLowerCase() === genreInput.toLowerCase());
       if (foundGenre) {
         genreId = foundGenre.id;
         selectedGenreName = foundGenre.name;
@@ -297,19 +253,36 @@ class BookStoreCLI {
     }
 
     if (!genreId) {
-      this.error(
-        "Invalid genre selection. Please enter a valid number or genre name."
-      );
+      this.error("Invalid genre selection.");
       return;
     }
 
     const title = await this.prompt("Title: ");
     const writer = await this.prompt("Writer: ");
     const publisher = await this.prompt("Publisher: ");
-    const publicationYear = parseInt(await this.prompt("Publication year: "));
+    
+    let publicationYear: number;
+    while (true) {
+      const yearInput = await this.prompt("Publication year: ");
+      publicationYear = parseInt(yearInput);
+      if (!isNaN(publicationYear) && publicationYear > 0 && Number.isInteger(Number(yearInput))) {
+        break;
+      }
+      this.error("Publication year must be a valid integer");
+    }
+    
     const description = await this.prompt("Description (optional): ");
     const price = parseFloat(await this.prompt("Price: "));
-    const stockQuantity = parseInt(await this.prompt("Stock quantity: "));
+    
+    let stockQuantity: number;
+    while (true) {
+      const stockInput = await this.prompt("Stock quantity: ");
+      stockQuantity = parseInt(stockInput);
+      if (!isNaN(stockQuantity) && stockQuantity >= 0 && Number.isInteger(Number(stockInput))) {
+        break;
+      }
+      this.error("Stock quantity must be a valid integer (no decimals)");
+    }
 
     try {
       const res = await this.api.post("/books", {
@@ -323,9 +296,7 @@ class BookStoreCLI {
         genre_id: genreId,
       });
 
-      this.success(
-        `Book "${res.data.data.title}" created with genre "${selectedGenreName}"`
-      );
+      this.success(`Book "${res.data.data.title}" created with genre "${selectedGenreName}"`);
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to create book");
     }
@@ -335,6 +306,7 @@ class BookStoreCLI {
     const page = (await this.prompt("Page (default 1): ")) || "1";
     const limit = (await this.prompt("Limit (default 10): ")) || "10";
     const search = await this.prompt("Search by title/writer (optional): ");
+    const sortBy = await this.prompt("Sort by (title/publication_year/price, optional): ");
 
     try {
       const res = await this.api.get("/books", {
@@ -342,6 +314,7 @@ class BookStoreCLI {
           page: parseInt(page),
           limit: parseInt(limit),
           search: search || undefined,
+          sortBy: sortBy || undefined,
         },
       });
 
@@ -353,13 +326,9 @@ class BookStoreCLI {
         return;
       }
 
-      this.log(
-        `=== BOOKS === (Page ${pagination.page}/${pagination.totalPages}, Total: ${pagination.total})`
-      );
+      this.log(`=== BOOKS === (Page ${pagination.page}/${pagination.totalPages}, Total: ${pagination.total})`);
       books.forEach((b) => {
-        console.log(
-          `[${b.id}] ${b.title} by ${b.writer} (${b.genre.name}) - $${b.price} (${b.stock_quantity} stock)`
-        );
+        console.log(`[${b.id}] ${b.title} by ${b.writer} (${b.genre.name}) - ${b.price} (${b.stock_quantity} stock) [${b.publication_year}]`);
       });
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to fetch books");
@@ -369,10 +338,17 @@ class BookStoreCLI {
   async listBooksByGenre(): Promise<void> {
     const genreId = await this.prompt("Genre ID: ");
     const page = (await this.prompt("Page (default 1): ")) || "1";
+    const search = await this.prompt("Search by title/writer (optional): ");
+    const sortBy = await this.prompt("Sort by (title/publication_year/price, optional): ");
 
     try {
       const res = await this.api.get(`/books/genre/${genreId}`, {
-        params: { page: parseInt(page), limit: 10 },
+        params: { 
+          page: parseInt(page), 
+          limit: 10,
+          search: search || undefined,
+          sortBy: sortBy || undefined,
+        },
       });
 
       const books: Book[] = res.data.data;
@@ -383,14 +359,34 @@ class BookStoreCLI {
         return;
       }
 
-      this.log(
-        `=== BOOKS BY GENRE === (Page ${pagination.page}/${pagination.totalPages})`
-      );
+      this.log(`=== BOOKS BY GENRE === (Page ${pagination.page}/${pagination.totalPages})`);
       books.forEach((b) => {
-        console.log(`[${b.id}] ${b.title} - $${b.price}`);
+        console.log(`[${b.id}] ${b.title} - ${b.price} (${b.stock_quantity} stock) [${b.publication_year}]`);
       });
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to fetch books");
+    }
+  }
+
+  async getBookDetail(): Promise<void> {
+    const bookId = await this.prompt("Book ID: ");
+
+    try {
+      const res = await this.api.get(`/books/${bookId}`);
+      const book: Book = res.data.data;
+
+      this.log("=== BOOK DETAIL ===");
+      console.log(`ID: ${book.id}`);
+      console.log(`Title: ${book.title}`);
+      console.log(`Writer: ${book.writer}`);
+      console.log(`Publisher: ${book.publisher}`);
+      console.log(`Publication Year: ${book.publication_year}`);
+      console.log(`Genre: ${book.genre.name}`);
+      console.log(`Price: ${book.price}`);
+      console.log(`Stock: ${book.stock_quantity}`);
+      console.log(`Description: ${book.description || "-"}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || "Failed to fetch book detail");
     }
   }
 
@@ -403,13 +399,20 @@ class BookStoreCLI {
     const bookId = await this.prompt("Book ID: ");
     this.log("(Leave empty to skip updating a field)");
     const title = await this.prompt("Title: ");
-    const price = await this.prompt("Price: ");
-    const stockQuantity = await this.prompt("Stock quantity: ");
+    const priceInput = await this.prompt("Price: ");
+    const stockInput = await this.prompt("Stock quantity: ");
 
     const data: any = {};
     if (title) data.title = title;
-    if (price) data.price = parseFloat(price);
-    if (stockQuantity) data.stock_quantity = parseInt(stockQuantity);
+    if (priceInput) data.price = parseFloat(priceInput);
+    if (stockInput) {
+      const stock = parseInt(stockInput);
+      if (!Number.isInteger(Number(stockInput))) {
+        this.error("Stock quantity must be an integer");
+        return;
+      }
+      data.stock_quantity = stock;
+    }
 
     if (Object.keys(data).length === 0) {
       this.error("No fields to update");
@@ -447,18 +450,142 @@ class BookStoreCLI {
     }
 
     this.log("=== CREATE ORDER ===");
-    const itemsInput = await this.prompt(
-      "Enter items as: book_id:quantity,book_id:quantity (e.g., 123:2,456:1): "
-    );
+    const cartItems: Array<{ book_id: string; quantity: number }> = [];
 
-    const items = itemsInput.split(",").map((item) => {
-      const [bookId, quantity] = item.trim().split(":");
-      return { book_id: bookId, quantity: parseInt(quantity) };
-    });
+    let continueAdding = true;
+
+    while (continueAdding) {
+      this.log("\nHow to find books?");
+      console.log("1. Search by title");
+      console.log("2. Search by year");
+      console.log("3. Enter ID directly");
+      console.log("4. Browse all books");
+      console.log("5. Cancel/Done");
+
+      const choice = await this.prompt("Choose (1-5): ");
+      
+      if (choice === "5") {
+        break; // Keluar dari loop
+      }
+      
+      let selectedBookId: string | null = null;
+
+      if (choice === "1") {
+        const searchTitle = await this.prompt("Enter title to search: ");
+        try {
+          const res = await this.api.get("/books", {
+            params: { search: searchTitle, limit: 20 },
+          });
+          const books: Book[] = res.data.data;
+
+          if (books.length === 0) {
+            this.error("No books found");
+            continue;
+          }
+
+          this.log("=== SEARCH RESULTS ===");
+          books.forEach((b, idx) => {
+            console.log(`${idx + 1}. [ID:${b.id}] ${b.title} by ${b.writer} - ${b.price} (Stock: ${b.stock_quantity})`);
+          });
+
+          const bookChoice = await this.prompt("Select book number: ");
+          const bookIndex = parseInt(bookChoice) - 1;
+
+          if (bookIndex >= 0 && bookIndex < books.length) {
+            selectedBookId = books[bookIndex].id;
+          } else {
+            this.error("Invalid selection");
+            continue;
+          }
+        } catch (err: any) {
+          this.error("Failed to search books");
+          continue;
+        }
+      } else if (choice === "2") {
+        const year = await this.prompt("Enter publication year: ");
+        try {
+          const res = await this.api.get("/books", { params: { limit: 50 } });
+          const allBooks: Book[] = res.data.data;
+          const books = allBooks.filter((b) => b.publication_year === parseInt(year));
+
+          if (books.length === 0) {
+            this.error("No books found for that year");
+            continue;
+          }
+
+          this.log(`=== BOOKS FROM ${year} ===`);
+          books.forEach((b, idx) => {
+            console.log(`${idx + 1}. [ID:${b.id}] ${b.title} by ${b.writer} - ${b.price} (Stock: ${b.stock_quantity})`);
+          });
+
+          const bookChoice = await this.prompt("Select book number: ");
+          const bookIndex = parseInt(bookChoice) - 1;
+
+          if (bookIndex >= 0 && bookIndex < books.length) {
+            selectedBookId = books[bookIndex].id;
+          } else {
+            this.error("Invalid selection");
+            continue;
+          }
+        } catch (err: any) {
+          this.error("Failed to fetch books");
+          continue;
+        }
+      } else if (choice === "3") {
+        selectedBookId = await this.prompt("Enter Book ID: ");
+      } else if (choice === "4") {
+        try {
+          const res = await this.api.get("/books", { params: { limit: 20 } });
+          const books: Book[] = res.data.data;
+
+          if (books.length === 0) {
+            this.error("No books available");
+            continue;
+          }
+
+          this.log("=== ALL BOOKS ===");
+          books.forEach((b, idx) => {
+            console.log(`${idx + 1}. [ID:${b.id}] ${b.title} by ${b.writer} - ${b.price} (Stock: ${b.stock_quantity})`);
+          });
+
+          const bookChoice = await this.prompt("Select book number: ");
+          const bookIndex = parseInt(bookChoice) - 1;
+
+          if (bookIndex >= 0 && bookIndex < books.length) {
+            selectedBookId = books[bookIndex].id;
+          } else {
+            this.error("Invalid selection");
+            continue;
+          }
+        } catch (err: any) {
+          this.error("Failed to fetch books");
+          continue;
+        }
+      }
+
+      if (selectedBookId) {
+        const quantity = parseInt(await this.prompt("Quantity: "));
+
+        if (quantity > 0) {
+          cartItems.push({ book_id: selectedBookId, quantity });
+          this.success(`Added to cart!`);
+        } else {
+          this.error("Invalid quantity");
+        }
+      }
+
+      const addMore = await this.prompt("Add more books? (y/n): ");
+      continueAdding = addMore.toLowerCase() === "y";
+    }
+
+    if (cartItems.length === 0) {
+      this.error("No items in cart");
+      return;
+    }
 
     try {
-      const res = await this.api.post("/transactions", { items });
-      this.success(`Order created! Total: $${res.data.data.total}`);
+      const res = await this.api.post("/transactions", { items: cartItems });
+      this.success(`Order created! Total: ${res.data.data.total}`);
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to create order");
     }
@@ -470,8 +597,16 @@ class BookStoreCLI {
       return;
     }
 
+    const search = await this.prompt("Search by transaction ID (optional): ");
+    const sortBy = await this.prompt("Sort by price? (y/n, default n): ");
+
     try {
-      const res = await this.api.get("/transactions");
+      const res = await this.api.get("/transactions", {
+        params: {
+          search: search || undefined,
+          sortBy: sortBy.toLowerCase() === "y" ? "price" : undefined,
+        },
+      });
       const orders: Order[] = res.data.data;
 
       if (orders.length === 0) {
@@ -481,9 +616,7 @@ class BookStoreCLI {
 
       this.log("=== ORDERS ===");
       orders.forEach((o) => {
-        console.log(
-          `[${o.id}] Total: $${o.total} (${o.order_items.length} items)`
-        );
+        console.log(`[${o.id}] Total: ${o.total} (${o.order_items.length} items)`);
       });
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to fetch orders");
@@ -502,15 +635,9 @@ class BookStoreCLI {
       const res = await this.api.get(`/transactions/${transactionId}`);
       const order = res.data.data;
 
-      this.log(
-        `=== ORDER DETAILS ===\nID: ${order.id}\nTotal: $${order.total}\nItems:`
-      );
+      this.log(`=== ORDER DETAILS ===\nID: ${order.id}\nTotal: ${order.total}\nItems:`);
       order.order_items.forEach((item: any) => {
-        console.log(
-          `  - ${item.book.title} x${item.quantity} = $${
-            item.book.price * item.quantity
-          }`
-        );
+        console.log(`  - ${item.book.title} x${item.quantity} = ${item.book.price * item.quantity}`);
       });
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to fetch order");
@@ -527,15 +654,7 @@ class BookStoreCLI {
       const res = await this.api.get("/transactions/statistics");
       const stats = res.data.data;
 
-      this.log(
-        `=== STATISTICS ===\nTotal Transactions: ${
-          stats.totalTransactions
-        }\nAverage Per Transaction: $${stats.avgTransaction.toFixed(
-          2
-        )}\nMost Popular Genre: ${
-          stats.mostPopularGenre || "-"
-        }\nLeast Popular Genre: ${stats.leastPopularGenre || "-"}`
-      );
+      this.log(`=== STATISTICS ===\nTotal Transactions: ${stats.totalTransactions}\nAverage Per Transaction: ${stats.avgTransaction.toFixed(2)}\nMost Popular Genre: ${stats.mostPopularGenre || "-"}\nLeast Popular Genre: ${stats.leastPopularGenre || "-"}`);
     } catch (err: any) {
       this.error(err.response?.data?.message || "Failed to fetch statistics");
     }
@@ -543,9 +662,9 @@ class BookStoreCLI {
 
   showMenu(): void {
     console.clear();
-    console.log("╔════════════════════════════════════════╗");
+    console.log("╔═══════════════════════════════════════╗");
     console.log("║       BOOK STORE CLI INTERFACE         ║");
-    console.log("╚════════════════════════════════════════╝\n");
+    console.log("╚═══════════════════════════════════════╝\n");
 
     if (this.currentUser) {
       console.log(`📖 Logged in as: ${this.currentUser.email}\n`);
@@ -560,15 +679,16 @@ class BookStoreCLI {
       console.log("\n=== BOOK MANAGEMENT ===");
       console.log("7. List Books");
       console.log("8. List Books by Genre");
-      console.log("9. Create Book");
-      console.log("10. Update Book");
-      console.log("11. Delete Book");
+      console.log("9. Get Book Detail");
+      console.log("10. Create Book");
+      console.log("11. Update Book");
+      console.log("12. Delete Book");
       console.log("\n=== TRANSACTIONS ===");
-      console.log("12. Create Order");
-      console.log("13. List Orders");
-      console.log("14. Get Order Details");
-      console.log("15. View Statistics");
-      console.log("\n16. Exit");
+      console.log("13. Create Order");
+      console.log("14. List Orders");
+      console.log("15. Get Order Details");
+      console.log("16. View Statistics");
+      console.log("\n17. Exit");
     } else {
       console.log("=== MAIN MENU ===");
       console.log("1. Register");
@@ -581,71 +701,34 @@ class BookStoreCLI {
 
   async handleMenuLoggedIn(choice: string): Promise<boolean> {
     switch (choice) {
-      case "1":
-        await this.getProfile();
-        break;
-      case "2":
-        await this.logout();
-        break;
-      case "3":
-        await this.listGenres();
-        break;
-      case "4":
-        await this.createGenre();
-        break;
-      case "5":
-        await this.updateGenre();
-        break;
-      case "6":
-        await this.deleteGenre();
-        break;
-      case "7":
-        await this.listBooks();
-        break;
-      case "8":
-        await this.listBooksByGenre();
-        break;
-      case "9":
-        await this.createBook();
-        break;
-      case "10":
-        await this.updateBook();
-        break;
-      case "11":
-        await this.deleteBook();
-        break;
-      case "12":
-        await this.createTransaction();
-        break;
-      case "13":
-        await this.listTransactions();
-        break;
-      case "14":
-        await this.getTransaction();
-        break;
-      case "15":
-        await this.getStatistics();
-        break;
-      case "16":
-        return false;
-      default:
-        this.error("Invalid choice");
+      case "1": await this.getProfile(); break;
+      case "2": await this.logout(); break;
+      case "3": await this.listGenres(); break;
+      case "4": await this.createGenre(); break;
+      case "5": await this.updateGenre(); break;
+      case "6": await this.deleteGenre(); break;
+      case "7": await this.listBooks(); break;
+      case "8": await this.listBooksByGenre(); break;
+      case "9": await this.getBookDetail(); break;
+      case "10": await this.createBook(); break;
+      case "11": await this.updateBook(); break;
+      case "12": await this.deleteBook(); break;
+      case "13": await this.createTransaction(); break;
+      case "14": await this.listTransactions(); break;
+      case "15": await this.getTransaction(); break;
+      case "16": await this.getStatistics(); break;
+      case "17": return false;
+      default: this.error("Invalid choice");
     }
     return true;
   }
 
   async handleMenuLoggedOut(choice: string): Promise<boolean> {
     switch (choice) {
-      case "1":
-        await this.register();
-        break;
-      case "2":
-        await this.login();
-        break;
-      case "3":
-        return false;
-      default:
-        this.error("Invalid choice");
+      case "1": await this.register(); break;
+      case "2": await this.login(); break;
+      case "3": return false;
+      default: this.error("Invalid choice");
     }
     return true;
   }
