@@ -6,19 +6,16 @@ import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
-// ============ CUSTOM ERROR CLASS ============
 export class AppError extends Error {
   constructor(public message: string, public statusCode: number = 500) {
     super(message);
   }
 }
 
-// ============ AUTH REQUEST INTERFACE ============
 export interface AuthRequest extends Request {
   userId?: string;
 }
 
-// ============ CREATE EXPRESS APP ============
 export const createApp = (): Express => {
   const app = express();
 
@@ -29,7 +26,6 @@ export const createApp = (): Express => {
   return app;
 };
 
-// ============ AUTH MIDDLEWARE ============
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const token = req.headers.authorization?.split(' ')[1];
@@ -42,7 +38,6 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   }
 };
 
-// ============ ERROR HANDLER MIDDLEWARE ============
 export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({ success: false, message: err.message });
@@ -54,9 +49,8 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
   res.status(500).json({ success: false, message: 'Server error' });
 };
 
-// ============ START SERVER ============
 export const startServer = (app: Express, port: number | string = process.env.PORT || 3000) => {
   app.listen(port, () => {
-    console.log(`🚀 Server running on http://localhost:${port}`);
+    console.log(`Server running on http://localhost:${port}`);
   });
 };

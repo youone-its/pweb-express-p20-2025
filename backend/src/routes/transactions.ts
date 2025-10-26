@@ -4,9 +4,8 @@ import { db } from "../db";
 import { AppError, AuthRequest, authMiddleware } from "../middleware";
 
 export const setupTransactionRoutes = (app: Express) => {
-  console.log("🔧 Setting up transaction routes...");
+  console.log("Setting up transaction routes...");
 
-  // POST /transactions - Create transaction (beli buku, bisa >1 item)
   app.post(
     "/transactions",
     authMiddleware,
@@ -32,7 +31,6 @@ export const setupTransactionRoutes = (app: Express) => {
 
         const userId = parseInt(req.userId!);
 
-        // Validasi dan ambil detail semua buku
         const bookDetails = [];
         for (const item of items) {
           const book = await db.books.findFirst({
@@ -47,7 +45,6 @@ export const setupTransactionRoutes = (app: Express) => {
             );
           }
 
-          // Cek stok
           if (book.stock_quantity < item.quantity) {
             throw new AppError(
               `Stok buku "${book.title}" tidak mencukupi. Stok tersedia: ${book.stock_quantity}`,
@@ -58,7 +55,6 @@ export const setupTransactionRoutes = (app: Express) => {
           bookDetails.push({ book, quantity: item.quantity });
         }
 
-        // Create order dengan transaction
         const order = await db.orders.create({
           data: {
             user_id: userId,
@@ -82,7 +78,6 @@ export const setupTransactionRoutes = (app: Express) => {
           },
         });
 
-        // Update stok buku
         for (const detail of bookDetails) {
           await db.books.update({
             where: { id: detail.book.id },
@@ -92,7 +87,6 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         }
 
-        // Hitung total harga
         const total = order.order_items.reduce(
           (sum, item) => sum + Number(item.book.price) * item.quantity,
           0
@@ -109,7 +103,6 @@ export const setupTransactionRoutes = (app: Express) => {
     }
   );
 
-  // GET /transactions - List semua transaksi user yang login
   app.get(
     "/transactions",
     authMiddleware,
@@ -133,7 +126,6 @@ export const setupTransactionRoutes = (app: Express) => {
           orderBy: { created_at: "desc" },
         });
 
-        // Tambahkan total untuk setiap order
         const ordersWithTotal = orders.map((order) => {
           const total = order.order_items.reduce(
             (sum, item) => sum + Number(item.book.price) * item.quantity,
@@ -152,17 +144,15 @@ export const setupTransactionRoutes = (app: Express) => {
     }
   );
 
-  // GET /transactions/statistics - Get statistik penjualan (HARUS SEBELUM /:transaction_id)
-  console.log("📊 Registering /transactions/statistics route");
+  console.log("Registering /transactions/statistics route");
   app.get(
     "/transactions/statistics",
     authMiddleware,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        console.log("📊 Statistics endpoint HIT!");
-        console.log("📊 Statistics request received");
+        console.log("Statistics endpoint HIT!");
+        console.log("Statistics request received");
 
-        // Ambil semua transaksi dengan detail
         const orders = await db.orders.findMany({
           include: {
             order_items: {
@@ -189,10 +179,8 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         }
 
-        // Hitung total transaksi
         const totalTransactions = orders.length;
 
-        // Hitung total amount dan rata-rata
         const totalAmount = orders.reduce((sum, order) => {
           const orderTotal = order.order_items.reduce(
             (itemSum, item) =>
@@ -203,7 +191,6 @@ export const setupTransactionRoutes = (app: Express) => {
         }, 0);
         const avgTransaction = totalAmount / totalTransactions;
 
-        // Hitung genre dengan transaksi terbanyak dan tersedikit
         const genreCounts: { [key: string]: number } = {};
 
         orders.forEach((order) => {
@@ -214,7 +201,6 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         });
 
-        // Sort genre berdasarkan count (descending)
         const sortedGenres = Object.entries(genreCounts).sort(
           (a, b) => b[1] - a[1]
         );
@@ -226,7 +212,7 @@ export const setupTransactionRoutes = (app: Express) => {
             ? sortedGenres[sortedGenres.length - 1][0]
             : null;
 
-        console.log("✅ Statistics calculated successfully");
+        console.log("Statistics calculated successfully");
 
         res.json({
           success: true,
@@ -239,21 +225,20 @@ export const setupTransactionRoutes = (app: Express) => {
           },
         });
       } catch (error) {
-        console.error("❌ Statistics error:", error);
+        console.error("Statistics error:", error);
         next(error);
       }
     }
   );
 
-  // GET /transactions/:transaction_id - Get detail transaksi (HARUS SETELAH /statistics)
-  console.log("🔍 Registering /transactions/:transaction_id route");
+  console.log("Registering /transactions/:transaction_id route");
   app.get(
     "/transactions/:transaction_id",
     authMiddleware,
     async (req: AuthRequest, res: Response, next: NextFunction) => {
       try {
         console.log(
-          "🔍 Transaction detail endpoint HIT with ID:",
+          "Transaction detail endpoint HIT with ID:",
           req.params.transaction_id
         );
         const transactionId = parseInt(req.params.transaction_id);
@@ -292,7 +277,6 @@ export const setupTransactionRoutes = (app: Express) => {
           throw new AppError("Transaksi tidak ditemukan", 404);
         }
 
-        // Hitung total
         const total = order.order_items.reduce(
           (sum, item) => sum + Number(item.book.price) * item.quantity,
           0
@@ -308,5 +292,5 @@ export const setupTransactionRoutes = (app: Express) => {
     }
   );
 
-  console.log("✅ Transaction routes setup complete");
+  console.log("Transaction routes setup complete");
 };

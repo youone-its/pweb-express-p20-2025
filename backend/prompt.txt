@@ -1,0 +1,1685 @@
+index.ts
+import { createApp, startServer, errorHandler } from './middleware';
+import { setupAuthRoutes, setupGenreRoutes, setupBookRoutes } from './routes/authGenre';
+import { setupTransactionRoutes } from './routes/transactions';
+
+const app = createApp();
+
+setupAuthRoutes(app);
+setupGenreRoutes(app);
+setupBookRoutes(app);
+setupTransactionRoutes(app);
+
+app.use(errorHandler);
+
+startServer(app);
+
+server.ts
+import app from "./app"
+
+const PORT = process.env.PORT || 3000
+
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`)
+})
+
+middleware.ts
+import { Request, Response, NextFunction, Express } from 'express';
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import jwt from 'jsonwebtoken';
+
+dotenv.config();
+
+export class AppError extends Error {
+  constructor(public message: string, public statusCode: number = 500) {
+    super(message);
+  }
+}
+
+export interface AuthRequest extends Request {
+  userId?: string;
+}
+
+export const createApp = (): Express => {
+  const app = express();
+
+  // Middleware
+  app.use(cors());
+  app.use(express.json());
+
+  return app;
+};
+
+export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) throw new AppError('Token tidak ada', 401);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { userId: string };
+    req.userId = decoded.userId;
+    next();
+  } catch (error) {
+    next(new AppError('Token invalid', 401));
+  }
+};
+
+export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof AppError) {
+    return res.status(err.statusCode).json({ success: false, message: err.message });
+  }
+  if (err.name === 'ZodError') {
+    return res.status(400).json({ success: false, message: 'Validation error', errors: err.errors });
+  }
+  console.error(err);
+  res.status(500).json({ success: false, message: 'Server error' });
+};
+
+export const startServer = (app: Express, port: number | string = process.env.PORT || 3000) => {
+  app.listen(port, () => {
+    console.log(`Server running on http://localhost:${port}`);
+  });
+};
+
+db.ts
+import { PrismaClient } from '@prisma/client';
+export const db = new PrismaClient();
+
+cli.ts
+import * as readline from 'readline';
+import axios, { AxiosInstance } from 'axios';
+
+interface User {
+  id: string;
+  email: string;
+  username?: string;
+}
+
+interface Genre {
+  id: string;
+  name: string;
+  _count?: { books: number };
+}
+
+interface Book {
+  id: string;
+  title: string;
+  writer: string;
+  publisher: string;
+  publication_year: number;
+  description?: string;
+  price: number;
+  stock_quantity: number;
+  genre: Genre;
+}
+
+interface Order {
+  id: string;
+  user_id: string;
+  order_items: Array<{
+    id: string;
+    quantity: number;
+    book: Book;
+  }>;
+  total?: number;
+}
+
+class BookStoreCLI {
+  private rl: readline.Interface;
+  private api: AxiosInstance;
+  private currentUser: User | null = null;
+  private token: string | null = null;
+
+  constructor() {
+    this.rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: '> '
+    });
+
+    this.api = axios.create({
+      baseURL: 'http://localhost:3000',
+      timeout: 5000
+    });
+  }
+
+  private prompt(question: string): Promise<string> {
+    return new Promise((resolve) => {
+      this.rl.question(question, (answer) => {
+        resolve(answer.trim());
+      });
+    });
+  }
+
+  private log(message: string): void {
+    console.log('\n' + message);
+  }
+
+  private error(message: string): void {
+    console.log('\nError: ' + message);
+  }
+
+  private success(message: string): void {
+    console.log('\n' + message);
+  }
+
+  private setAuthHeader(): void {
+    if (this.token) {
+      this.api.defaults.headers.common['Authorization'] = `Bearer ${this.token}`;
+    }
+  }
+
+  async register(): Promise<void> {
+    this.log('=== REGISTER ===');
+    const email = await this.prompt('Email: ');
+    const password = await this.prompt('Password: ');
+    const username = await this.prompt('Username (optional, press Enter to skip): ');
+
+    try {
+      const res = await this.api.post('/auth/register', {
+        email,
+        password,
+        username: username || undefined
+      });
+
+      this.success(`Registered as ${res.data.data.email}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Registration failed');
+    }
+  }
+
+  async login(): Promise<void> {
+    this.log('=== LOGIN ===');
+    const email = await this.prompt('Email: ');
+    const password = await this.prompt('Password: ');
+
+    try {
+      const res = await this.api.post('/auth/login', { email, password });
+      this.token = res.data.data.token;
+      this.currentUser = res.data.data.user;
+      this.setAuthHeader();
+      this.success(`Logged in as ${this.currentUser!.email}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Login failed');
+    }
+  }
+
+  async logout(): Promise<void> {
+    this.token = null;
+    this.currentUser = null;
+    delete this.api.defaults.headers.common['Authorization'];
+    this.success('Logged out');
+  }
+
+  async getProfile(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    try {
+      const res = await this.api.get('/auth/me');
+      const user = res.data.data;
+      this.log(`=== PROFILE ===\nID: ${user.id}\nEmail: ${user.email}\nUsername: ${user.username || '-'}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to get profile');
+    }
+  }
+
+  async createGenre(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const name = await this.prompt('Genre name: ');
+
+    try {
+      const res = await this.api.post('/genre', { name });
+      this.success(`Genre "${res.data.data.name}" created`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to create genre');
+    }
+  }
+
+  async listGenres(): Promise<void> {
+    try {
+      const res = await this.api.get('/genre');
+      const genres: Genre[] = res.data.data;
+
+      if (genres.length === 0) {
+        this.log('=== GENRES === (empty)');
+        return;
+      }
+
+      this.log('=== GENRES ===');
+      genres.forEach((g) => {
+        console.log(`[${g.id}] ${g.name} (${g._count?.books || 0} books)`);
+      });
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch genres');
+    }
+  }
+
+  async updateGenre(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const genreId = await this.prompt('Genre ID: ');
+    const name = await this.prompt('New name: ');
+
+    try {
+      const res = await this.api.patch(`/genre/${genreId}`, { name });
+      this.success(`Genre updated to "${res.data.data.name}"`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to update genre');
+    }
+  }
+
+  async deleteGenre(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const genreId = await this.prompt('Genre ID: ');
+
+    try {
+      await this.api.delete(`/genre/${genreId}`);
+      this.success('Genre deleted');
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to delete genre');
+    }
+  }
+
+  async createBook(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    this.log('=== CREATE BOOK ===');
+    
+    let genres: Genre[] = [];
+    try {
+      const res = await this.api.get('/genre');
+      genres = res.data.data;
+    } catch (err: any) {
+      this.error('Failed to fetch genres');
+      return;
+    }
+
+    if (genres.length === 0) {
+      this.error('No genres available. Create a genre first.');
+      return;
+    }
+
+    this.log('Available Genres:');
+    genres.forEach((g, idx) => {
+      console.log(`${idx + 1}. ${g.name}`);
+    });
+
+    const genreInput = await this.prompt('Select genre (by number 1/2/3... or by name): ');
+    
+    let genreId: string | null = null;
+    let selectedGenreName: string | null = null;
+
+    const genreNumber = parseInt(genreInput);
+    if (!isNaN(genreNumber) && genreNumber > 0 && genreNumber <= genres.length) {
+      genreId = genres[genreNumber - 1].id;
+      selectedGenreName = genres[genreNumber - 1].name;
+    } else {
+      const foundGenre = genres.find(g => g.name.toLowerCase() === genreInput.toLowerCase());
+      if (foundGenre) {
+        genreId = foundGenre.id;
+        selectedGenreName = foundGenre.name;
+      }
+    }
+
+    if (!genreId) {
+      this.error('Invalid genre selection. Please enter a valid number or genre name.');
+      return;
+    }
+
+    const title = await this.prompt('Title: ');
+    const writer = await this.prompt('Writer: ');
+    const publisher = await this.prompt('Publisher: ');
+    const publicationYear = parseInt(await this.prompt('Publication year: '));
+    const description = await this.prompt('Description (optional): ');
+    const price = parseFloat(await this.prompt('Price: '));
+    const stockQuantity = parseInt(await this.prompt('Stock quantity: '));
+
+    try {
+      const res = await this.api.post('/books', {
+        title,
+        writer,
+        publisher,
+        publication_year: publicationYear,
+        description: description || undefined,
+        price,
+        stock_quantity: stockQuantity,
+        genre_id: genreId
+      });
+
+      this.success(`Book "${res.data.data.title}" created with genre "${selectedGenreName}"`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to create book');
+    }
+  }
+
+  async listBooks(): Promise<void> {
+    const page = await this.prompt('Page (default 1): ') || '1';
+    const limit = await this.prompt('Limit (default 10): ') || '10';
+    const search = await this.prompt('Search by title/writer (optional): ');
+
+    try {
+      const res = await this.api.get('/books', {
+        params: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          search: search || undefined
+        }
+      });
+
+      const books: Book[] = res.data.data;
+      const { pagination } = res.data;
+
+      if (books.length === 0) {
+        this.log('=== BOOKS === (empty)');
+        return;
+      }
+
+      this.log(`=== BOOKS === (Page ${pagination.page}/${pagination.totalPages}, Total: ${pagination.total})`);
+      books.forEach((b) => {
+        console.log(`[${b.id}] ${b.title} by ${b.writer} (${b.genre.name}) - $${b.price} (${b.stock_quantity} stock)`);
+      });
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch books');
+    }
+  }
+
+  async listBooksByGenre(): Promise<void> {
+    const genreId = await this.prompt('Genre ID: ');
+    const page = await this.prompt('Page (default 1): ') || '1';
+
+    try {
+      const res = await this.api.get(`/books/genre/${genreId}`, {
+        params: { page: parseInt(page), limit: 10 }
+      });
+
+      const books: Book[] = res.data.data;
+      const { pagination } = res.data;
+
+      if (books.length === 0) {
+        this.log('=== BOOKS BY GENRE === (empty)');
+        return;
+      }
+
+      this.log(`=== BOOKS BY GENRE === (Page ${pagination.page}/${pagination.totalPages})`);
+      books.forEach((b) => {
+        console.log(`[${b.id}] ${b.title} - $${b.price}`);
+      });
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch books');
+    }
+  }
+
+  async updateBook(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const bookId = await this.prompt('Book ID: ');
+    this.log('(Leave empty to skip updating a field)');
+    const title = await this.prompt('Title: ');
+    const price = await this.prompt('Price: ');
+    const stockQuantity = await this.prompt('Stock quantity: ');
+
+    const data: any = {};
+    if (title) data.title = title;
+    if (price) data.price = parseFloat(price);
+    if (stockQuantity) data.stock_quantity = parseInt(stockQuantity);
+
+    if (Object.keys(data).length === 0) {
+      this.error('No fields to update');
+      return;
+    }
+
+    try {
+      const res = await this.api.patch(`/books/${bookId}`, data);
+      this.success(`Book "${res.data.data.title}" updated`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to update book');
+    }
+  }
+
+  async deleteBook(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const bookId = await this.prompt('Book ID: ');
+
+    try {
+      await this.api.delete(`/books/${bookId}`);
+      this.success('Book deleted');
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to delete book');
+    }
+  }
+
+  async createTransaction(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    this.log('=== CREATE ORDER ===');
+    const itemsInput = await this.prompt('Enter items as: book_id:quantity,book_id:quantity (e.g., 123:2,456:1): ');
+
+    const items = itemsInput.split(',').map((item) => {
+      const [bookId, quantity] = item.trim().split(':');
+      return { book_id: bookId, quantity: parseInt(quantity) };
+    });
+
+    try {
+      const res = await this.api.post('/transactions', { items });
+      this.success(`Order created! Total: $${res.data.data.total}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to create order');
+    }
+  }
+
+  async listTransactions(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    try {
+      const res = await this.api.get('/transactions');
+      const orders: Order[] = res.data.data;
+
+      if (orders.length === 0) {
+        this.log('=== ORDERS === (empty)');
+        return;
+      }
+
+      this.log('=== ORDERS ===');
+      orders.forEach((o) => {
+        console.log(`[${o.id}] Total: $${o.total} (${o.order_items.length} items)`);
+      });
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch orders');
+    }
+  }
+
+  async getTransaction(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    const transactionId = await this.prompt('Order ID: ');
+
+    try {
+      const res = await this.api.get(`/transactions/${transactionId}`);
+      const order = res.data.data;
+
+      this.log(`=== ORDER DETAILS ===\nID: ${order.id}\nTotal: $${order.total}\nItems:`);
+      order.order_items.forEach((item: any) => {
+        console.log(`  - ${item.book.title} x${item.quantity} = $${item.book.price * item.quantity}`);
+      });
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch order');
+    }
+  }
+
+  async getStatistics(): Promise<void> {
+    if (!this.token) {
+      this.error('Not logged in');
+      return;
+    }
+
+    try {
+      const res = await this.api.get('/transactions/statistics');
+      const stats = res.data.data;
+
+      this.log(`=== STATISTICS ===\nTotal Transactions: ${stats.totalTransactions}\nAverage Per Transaction: $${stats.avgTransaction.toFixed(2)}\nMost Popular Genre: ${stats.mostPopularGenre || '-'}\nLeast Popular Genre: ${stats.leastPopularGenre || '-'}`);
+    } catch (err: any) {
+      this.error(err.response?.data?.message || 'Failed to fetch statistics');
+    }
+  }
+
+  showMenu(): void {
+    console.clear();
+    console.log('╔════════════════════════════════════════╗');
+    console.log('║       BOOK STORE CLI INTERFACE         ║');
+    console.log('╚════════════════════════════════════════╝\n');
+
+    if (this.currentUser) {
+      console.log(`📖 Logged in as: ${this.currentUser.email}\n`);
+      console.log('=== MAIN MENU ===');
+      console.log('1. View Profile');
+      console.log('2. Logout');
+      console.log('\n=== GENRE MANAGEMENT ===');
+      console.log('3. List Genres');
+      console.log('4. Create Genre');
+      console.log('5. Update Genre');
+      console.log('6. Delete Genre');
+      console.log('\n=== BOOK MANAGEMENT ===');
+      console.log('7. List Books');
+      console.log('8. List Books by Genre');
+      console.log('9. Create Book');
+      console.log('10. Update Book');
+      console.log('11. Delete Book');
+      console.log('\n=== TRANSACTIONS ===');
+      console.log('12. Create Order');
+      console.log('13. List Orders');
+      console.log('14. Get Order Details');
+      console.log('15. View Statistics');
+      console.log('\n16. Exit');
+    } else {
+      console.log('=== MAIN MENU ===');
+      console.log('1. Register');
+      console.log('2. Login');
+      console.log('3. Exit');
+    }
+
+    console.log('');
+  }
+
+  async handleMenuLoggedIn(choice: string): Promise<boolean> {
+    switch (choice) {
+      case '1':
+        await this.getProfile();
+        break;
+      case '2':
+        await this.logout();
+        return false;
+      case '3':
+        await this.listGenres();
+        break;
+      case '4':
+        await this.createGenre();
+        break;
+      case '5':
+        await this.updateGenre();
+        break;
+      case '6':
+        await this.deleteGenre();
+        break;
+      case '7':
+        await this.listBooks();
+        break;
+      case '8':
+        await this.listBooksByGenre();
+        break;
+      case '9':
+        await this.createBook();
+        break;
+      case '10':
+        await this.updateBook();
+        break;
+      case '11':
+        await this.deleteBook();
+        break;
+      case '12':
+        await this.createTransaction();
+        break;
+      case '13':
+        await this.listTransactions();
+        break;
+      case '14':
+        await this.getTransaction();
+        break;
+      case '15':
+        await this.getStatistics();
+        break;
+      case '16':
+        return false;
+      default:
+        this.error('Invalid choice');
+    }
+    return true;
+  }
+
+  async handleMenuLoggedOut(choice: string): Promise<boolean> {
+    switch (choice) {
+      case '1':
+        await this.register();
+        break;
+      case '2':
+        await this.login();
+        break;
+      case '3':
+        return false;
+      default:
+        this.error('Invalid choice');
+    }
+    return true;
+  }
+
+  async start(): Promise<void> {
+    let running = true;
+
+    while (running) {
+      this.showMenu();
+      const choice = await this.prompt('Choose option: ');
+
+      if (this.currentUser) {
+        running = await this.handleMenuLoggedIn(choice);
+      } else {
+        running = await this.handleMenuLoggedOut(choice);
+      }
+
+      if (running) {
+        await this.prompt('\nPress Enter to continue...');
+      }
+    }
+
+    this.success('Goodbye!');
+    this.rl.close();
+    process.exit(0);
+  }
+}
+
+const cli = new BookStoreCLI();
+cli.start();
+
+app.ts
+import express from "express"
+import cors from "cors"
+import dotenv from "dotenv"
+import { setupAuthRoutes, setupGenreRoutes, setupBookRoutes } from "./routes/authGenre"
+import { setupTransactionRoutes } from "./routes/transactions"
+
+dotenv.config()
+const app = express()
+
+app.use(cors())
+app.use(express.json())
+
+setupAuthRoutes(app)
+setupGenreRoutes(app)
+setupBookRoutes(app)
+setupTransactionRoutes(app)
+
+export default app
+
+
+transactions.ts
+import { Express, Request, Response, NextFunction } from "express";
+import { z } from "zod";
+import { db } from "../db";
+import { AppError, AuthRequest, authMiddleware } from "../middleware";
+
+export const setupTransactionRoutes = (app: Express) => {
+  console.log("Setting up transaction routes...");
+
+  app.post(
+    "/transactions",
+    authMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        const { items } = z
+          .object({
+            items: z
+              .array(
+                z.object({
+                  book_id: z
+                    .string()
+                    .or(z.number())
+                    .transform((val) =>
+                      typeof val === "string" ? parseInt(val) : val
+                    ),
+                  quantity: z.number().int().min(1, "Quantity minimal 1"),
+                })
+              )
+              .min(1, "Minimal 1 item dalam order"),
+          })
+          .parse(req.body);
+
+        const userId = parseInt(req.userId!);
+
+        const bookDetails = [];
+        for (const item of items) {
+          const book = await db.books.findFirst({
+            where: { id: item.book_id, deleted_at: null },
+            include: { genre: true },
+          });
+
+          if (!book) {
+            throw new AppError(
+              `Buku dengan ID ${item.book_id} tidak ditemukan`,
+              404
+            );
+          }
+
+          if (book.stock_quantity < item.quantity) {
+            throw new AppError(
+              `Stok buku "${book.title}" tidak mencukupi. Stok tersedia: ${book.stock_quantity}`,
+              400
+            );
+          }
+
+          bookDetails.push({ book, quantity: item.quantity });
+        }
+
+        const order = await db.orders.create({
+          data: {
+            user_id: userId,
+            order_items: {
+              create: bookDetails.map((detail) => ({
+                book_id: detail.book.id,
+                quantity: detail.quantity,
+              })),
+            },
+          },
+          include: {
+            order_items: {
+              include: {
+                book: {
+                  include: {
+                    genre: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        for (const detail of bookDetails) {
+          await db.books.update({
+            where: { id: detail.book.id },
+            data: {
+              stock_quantity: detail.book.stock_quantity - detail.quantity,
+            },
+          });
+        }
+
+        const total = order.order_items.reduce(
+          (sum, item) => sum + Number(item.book.price) * item.quantity,
+          0
+        );
+
+        res.status(201).json({
+          success: true,
+          message: "Transaksi berhasil dibuat",
+          data: { ...order, total },
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/transactions",
+    authMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        const userId = parseInt(req.userId!);
+
+        const orders = await db.orders.findMany({
+          where: { user_id: userId },
+          include: {
+            order_items: {
+              include: {
+                book: {
+                  include: {
+                    genre: true,
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { created_at: "desc" },
+        });
+
+        const ordersWithTotal = orders.map((order) => {
+          const total = order.order_items.reduce(
+            (sum, item) => sum + Number(item.book.price) * item.quantity,
+            0
+          );
+          return { ...order, total };
+        });
+
+        res.json({
+          success: true,
+          data: ordersWithTotal,
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  console.log("Registering /transactions/statistics route");
+  app.get(
+    "/transactions/statistics",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        console.log("Statistics endpoint HIT!");
+        console.log("Statistics request received");
+
+        const orders = await db.orders.findMany({
+          include: {
+            order_items: {
+              include: {
+                book: {
+                  include: {
+                    genre: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        if (orders.length === 0) {
+          return res.json({
+            success: true,
+            data: {
+              totalTransactions: 0,
+              avgTransaction: 0,
+              mostPopularGenre: null,
+              leastPopularGenre: null,
+            },
+          });
+        }
+
+        const totalTransactions = orders.length;
+
+        const totalAmount = orders.reduce((sum, order) => {
+          const orderTotal = order.order_items.reduce(
+            (itemSum, item) =>
+              itemSum + Number(item.book.price) * item.quantity,
+            0
+          );
+          return sum + orderTotal;
+        }, 0);
+        const avgTransaction = totalAmount / totalTransactions;
+
+        const genreCounts: { [key: string]: number } = {};
+
+        orders.forEach((order) => {
+          order.order_items.forEach((item) => {
+            const genreName = item.book.genre.name;
+            genreCounts[genreName] =
+              (genreCounts[genreName] || 0) + item.quantity;
+          });
+        });
+
+        const sortedGenres = Object.entries(genreCounts).sort(
+          (a, b) => b[1] - a[1]
+        );
+
+        const mostPopularGenre =
+          sortedGenres.length > 0 ? sortedGenres[0][0] : null;
+        const leastPopularGenre =
+          sortedGenres.length > 0
+            ? sortedGenres[sortedGenres.length - 1][0]
+            : null;
+
+        console.log("Statistics calculated successfully");
+
+        res.json({
+          success: true,
+          data: {
+            totalTransactions,
+            avgTransaction: parseFloat(avgTransaction.toFixed(2)),
+            mostPopularGenre,
+            leastPopularGenre,
+            genreBreakdown: Object.fromEntries(sortedGenres),
+          },
+        });
+      } catch (error) {
+        console.error("Statistics error:", error);
+        next(error);
+      }
+    }
+  );
+
+  console.log("Registering /transactions/:transaction_id route");
+  app.get(
+    "/transactions/:transaction_id",
+    authMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        console.log(
+          "Transaction detail endpoint HIT with ID:",
+          req.params.transaction_id
+        );
+        const transactionId = parseInt(req.params.transaction_id);
+        if (isNaN(transactionId)) {
+          throw new AppError("Transaction ID tidak valid", 400);
+        }
+
+        const userId = parseInt(req.userId!);
+
+        const order = await db.orders.findFirst({
+          where: {
+            id: transactionId,
+            user_id: userId,
+          },
+          include: {
+            order_items: {
+              include: {
+                book: {
+                  include: {
+                    genre: true,
+                  },
+                },
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                email: true,
+                username: true,
+              },
+            },
+          },
+        });
+
+        if (!order) {
+          throw new AppError("Transaksi tidak ditemukan", 404);
+        }
+
+        const total = order.order_items.reduce(
+          (sum, item) => sum + Number(item.book.price) * item.quantity,
+          0
+        );
+
+        res.json({
+          success: true,
+          data: { ...order, total },
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  console.log("Transaction routes setup complete");
+};
+
+
+genreroutes.ts
+import { Router } from "express"
+import {
+  createGenre,
+  getAllGenres,
+  getGenreDetail,
+  updateGenre,
+  deleteGenre
+} from "../controllers/genreController"
+import { authMiddleware } from "../middleware"
+
+
+const router = Router()
+
+router.post("/", authMiddleware, createGenre)
+router.get("/", getAllGenres)
+router.get("/:genre_id", getGenreDetail)
+router.patch("/:genre_id", authMiddleware, updateGenre)
+router.delete("/:genre_id", authMiddleware, deleteGenre)
+
+export default router
+
+
+bookroutes.ts
+import { Router } from "express"
+import {
+  createBook,
+  getAllBooks,
+  getBooksByGenre,
+  getBookDetail,
+  updateBook,
+  deleteBook
+} from "../controllers/bookController"
+import { authMiddleware } from "../middleware"
+
+
+const router = Router()
+
+router.post("/", authMiddleware, createBook)
+router.get("/", getAllBooks)
+router.get("/genre/:genre_id", getBooksByGenre)
+router.get("/:book_id", getBookDetail)
+router.patch("/:book_id", authMiddleware, updateBook)
+router.delete("/:book_id", authMiddleware, deleteBook)
+
+export default router
+
+
+authgenre.ts
+import { Express, Request, Response, NextFunction } from "express";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { db } from "../db";
+import { AppError, AuthRequest, authMiddleware } from "../middleware";
+
+export const setupAuthRoutes = (app: Express) => {
+  app.post(
+    "/auth/register",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        console.log('Register request received:', req.body);
+        
+        const { email, password, username } = z.object({
+          email: z.string().email("Email tidak valid"),
+          password: z.string().min(6, "Password minimal 6 karakter"),
+          username: z.string().optional()
+        }).parse(req.body);
+
+        console.log('Validation passed');
+
+        console.log('Checking existing user...');
+        const existingUser = await db.users.findUnique({ where: { email } });
+        if (existingUser) {
+          throw new AppError("Email sudah terdaftar", 400);
+        }
+
+        console.log('Hashing password...');
+        const hashedPassword = await bcrypt.hash(password, 10);
+
+        console.log('Creating user...');
+        const user = await db.users.create({
+          data: {
+            email,
+            password: hashedPassword,
+            username: username || null
+          },
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            created_at: true
+          }
+        });
+
+        console.log('User created successfully:', user.email);
+
+        res.status(201).json({
+          success: true,
+          message: "User berhasil didaftarkan",
+          data: user
+        });
+      } catch (error) {
+        console.error('Register error:', error);
+        next(error);
+      }
+    }
+  );
+
+  app.post(
+    "/auth/login",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        console.log('Login request received:', req.body.email);
+        
+        const { email, password } = z.object({
+          email: z.string().email("Email tidak valid"),
+          password: z.string().min(1, "Password tidak boleh kosong")
+        }).parse(req.body);
+
+        const user = await db.users.findUnique({ where: { email } });
+        if (!user) {
+          throw new AppError("Email atau password salah", 401);
+        }
+
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+          throw new AppError("Email atau password salah", 401);
+        }
+
+        const token = jwt.sign(
+          { userId: user.id.toString() },
+          process.env.JWT_SECRET!,
+          { expiresIn: "7d" }
+        );
+
+        console.log('Login successful:', user.email);
+
+        res.json({
+          success: true,
+          message: "Login berhasil",
+          data: {
+            token,
+            user: {
+              id: user.id,
+              email: user.email,
+              username: user.username
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Login error:', error);
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/auth/me",
+    authMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        const user = await db.users.findUnique({
+          where: { id: parseInt(req.userId!) },
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            created_at: true,
+            updated_at: true
+          }
+        });
+
+        if (!user) {
+          throw new AppError("User tidak ditemukan", 404);
+        }
+
+        res.json({
+          success: true,
+          data: user
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+};
+
+export const setupGenreRoutes = (app: Express) => {
+  app.post(
+    "/genre",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { name } = z.object({
+          name: z.string().min(1, "Nama genre tidak boleh kosong")
+        }).parse(req.body);
+
+        const existingGenre = await db.genres.findFirst({
+          where: { name, deleted_at: null }
+        });
+        if (existingGenre) {
+          throw new AppError("Genre dengan nama ini sudah ada", 400);
+        }
+
+        const genre = await db.genres.create({
+          data: { name }
+        });
+
+        res.status(201).json({
+          success: true,
+          message: "Genre berhasil dibuat",
+          data: genre
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/genre",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const genres = await db.genres.findMany({
+          where: { deleted_at: null },
+          include: {
+            _count: {
+              select: { books: true }
+            }
+          },
+          orderBy: { created_at: 'desc' }
+        });
+
+        res.json({
+          success: true,
+          data: genres
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/genre/:genre_id",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const genreId = parseInt(req.params.genre_id);
+        if (isNaN(genreId)) {
+          throw new AppError("Genre ID tidak valid", 400);
+        }
+
+        const genre = await db.genres.findFirst({
+          where: { id: genreId, deleted_at: null },
+          include: {
+            _count: {
+              select: { books: true }
+            }
+          }
+        });
+
+        if (!genre) {
+          throw new AppError("Genre tidak ditemukan", 404);
+        }
+
+        res.json({
+          success: true,
+          data: genre
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.patch(
+    "/genre/:genre_id",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const genreId = parseInt(req.params.genre_id);
+        if (isNaN(genreId)) {
+          throw new AppError("Genre ID tidak valid", 400);
+        }
+
+        const { name } = z.object({
+          name: z.string().min(1, "Nama genre tidak boleh kosong")
+        }).parse(req.body);
+
+        const existingGenre = await db.genres.findFirst({
+          where: { id: genreId, deleted_at: null }
+        });
+        if (!existingGenre) {
+          throw new AppError("Genre tidak ditemukan", 404);
+        }
+
+        const duplicateGenre = await db.genres.findFirst({
+          where: {
+            name,
+            id: { not: genreId },
+            deleted_at: null
+          }
+        });
+        if (duplicateGenre) {
+          throw new AppError("Genre dengan nama ini sudah ada", 400);
+        }
+
+        const updatedGenre = await db.genres.update({
+          where: { id: genreId },
+          data: { name }
+        });
+
+        res.json({
+          success: true,
+          message: "Genre berhasil diupdate",
+          data: updatedGenre
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.delete(
+    "/genre/:genre_id",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const genreId = parseInt(req.params.genre_id);
+        if (isNaN(genreId)) {
+          throw new AppError("Genre ID tidak valid", 400);
+        }
+
+        const genre = await db.genres.findFirst({
+          where: { id: genreId, deleted_at: null }
+        });
+
+        if (!genre) {
+          throw new AppError("Genre tidak ditemukan", 404);
+        }
+
+        await db.genres.update({
+          where: { id: genreId },
+          data: { deleted_at: new Date() }
+        });
+
+        res.json({
+          success: true,
+          message: "Genre berhasil dihapus"
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+};
+
+export const setupBookRoutes = (app: Express) => {
+  app.post(
+    "/books",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const { title, writer, publisher, publication_year, description, price, stock_quantity, genre_id } = z.object({
+          title: z.string().min(1, "Judul tidak boleh kosong"),
+          writer: z.string().min(1, "Penulis tidak boleh kosong"),
+          publisher: z.string().min(1, "Penerbit tidak boleh kosong"),
+          publication_year: z.number().int().min(1000).max(new Date().getFullYear() + 10),
+          description: z.string().optional(),
+          price: z.number().positive("Harga harus positif"),
+          stock_quantity: z.number().int().min(0, "Stok tidak boleh negatif"),
+          genre_id: z.string().or(z.number())
+        }).parse(req.body);
+
+        const genreId = typeof genre_id === 'string' ? parseInt(genre_id) : genre_id;
+
+        const existingBook = await db.books.findFirst({
+          where: { title, deleted_at: null }
+        });
+        if (existingBook) {
+          throw new AppError("Buku dengan judul ini sudah ada", 400);
+        }
+
+        const genre = await db.genres.findFirst({
+          where: { id: genreId, deleted_at: null }
+        });
+        if (!genre) {
+          throw new AppError("Genre tidak ditemukan", 404);
+        }
+
+        const book = await db.books.create({
+          data: {
+            title,
+            writer,
+            publisher,
+            publication_year,
+            description: description || null,
+            price,
+            stock_quantity,
+            genre_id: genreId
+          },
+          include: {
+            genre: true
+          }
+        });
+
+        res.status(201).json({
+          success: true,
+          message: "Buku berhasil dibuat",
+          data: book
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/books",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const search = req.query.search as string || '';
+        const skip = (page - 1) * limit;
+
+        const where: any = { deleted_at: null };
+
+        if (search) {
+          where.OR = [
+            { title: { contains: search, mode: 'insensitive' } },
+            { writer: { contains: search, mode: 'insensitive' } }
+          ];
+        }
+
+        const [books, total] = await Promise.all([
+          db.books.findMany({
+            where,
+            include: { genre: true },
+            skip,
+            take: limit,
+            orderBy: { created_at: 'desc' }
+          }),
+          db.books.count({ where })
+        ]);
+
+        res.json({
+          success: true,
+          data: books,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit)
+          }
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/books/genre/:genre_id",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const genreId = parseInt(req.params.genre_id);
+        if (isNaN(genreId)) {
+          throw new AppError("Genre ID tidak valid", 400);
+        }
+
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const search = req.query.search as string || '';
+        const skip = (page - 1) * limit;
+
+        const genre = await db.genres.findFirst({
+          where: { id: genreId, deleted_at: null }
+        });
+        if (!genre) {
+          throw new AppError("Genre tidak ditemukan", 404);
+        }
+
+        const where: any = { genre_id: genreId, deleted_at: null };
+
+        if (search) {
+          where.OR = [
+            { title: { contains: search, mode: 'insensitive' } },
+            { writer: { contains: search, mode: 'insensitive' } }
+          ];
+        }
+
+        const [books, total] = await Promise.all([
+          db.books.findMany({
+            where,
+            include: { genre: true },
+            skip,
+            take: limit,
+            orderBy: { created_at: 'desc' }
+          }),
+          db.books.count({ where })
+        ]);
+
+        res.json({
+          success: true,
+          data: books,
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages: Math.ceil(total / limit)
+          }
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.get(
+    "/books/:book_id",
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const bookId = parseInt(req.params.book_id);
+        if (isNaN(bookId)) {
+          throw new AppError("Book ID tidak valid", 400);
+        }
+
+        const book = await db.books.findFirst({
+          where: { id: bookId, deleted_at: null },
+          include: { genre: true }
+        });
+
+        if (!book) {
+          throw new AppError("Buku tidak ditemukan", 404);
+        }
+
+        res.json({
+          success: true,
+          data: book
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.patch(
+    "/books/:book_id",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const bookId = parseInt(req.params.book_id);
+        if (isNaN(bookId)) {
+          throw new AppError("Book ID tidak valid", 400);
+        }
+
+        // Validasi data yang bisa diupdate
+        const updateSchema = z.object({
+          title: z.string().min(1).optional(),
+          writer: z.string().min(1).optional(),
+          publisher: z.string().min(1).optional(),
+          publication_year: z.number().int().min(1000).max(new Date().getFullYear() + 10).optional(),
+          description: z.string().optional(),
+          price: z.number().positive().optional(),
+          stock_quantity: z.number().int().min(0).optional(),
+          genre_id: z.string().or(z.number()).optional()
+        });
+
+        const data = updateSchema.parse(req.body);
+
+        const existingBook = await db.books.findFirst({
+          where: { id: bookId, deleted_at: null }
+        });
+        if (!existingBook) {
+          throw new AppError("Buku tidak ditemukan", 404);
+        }
+
+        if (data.title && data.title !== existingBook.title) {
+          const duplicateBook = await db.books.findFirst({
+            where: { title: data.title, deleted_at: null, id: { not: bookId } }
+          });
+          if (duplicateBook) {
+            throw new AppError("Buku dengan judul ini sudah ada", 400);
+          }
+        }
+
+        if (data.genre_id) {
+          const genreId = typeof data.genre_id === 'string' ? parseInt(data.genre_id) : data.genre_id;
+          const genre = await db.genres.findFirst({
+            where: { id: genreId, deleted_at: null }
+          });
+          if (!genre) {
+            throw new AppError("Genre tidak ditemukan", 404);
+          }
+          (data as any).genre_id = genreId;
+        }
+
+        const updatedBook = await db.books.update({
+          where: { id: bookId },
+          data: data as any,
+          include: { genre: true }
+        });
+
+        res.json({
+          success: true,
+          message: "Buku berhasil diupdate",
+          data: updatedBook
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+
+  app.delete(
+    "/books/:book_id",
+    authMiddleware,
+    async (req: Request, res: Response, next: NextFunction) => {
+      try {
+        const bookId = parseInt(req.params.book_id);
+        if (isNaN(bookId)) {
+          throw new AppError("Book ID tidak valid", 400);
+        }
+
+        const book = await db.books.findFirst({
+          where: { id: bookId, deleted_at: null }
+        });
+
+        if (!book) {
+          throw new AppError("Buku tidak ditemukan", 404);
+        }
+
+        await db.books.update({
+          where: { id: bookId },
+          data: { deleted_at: new Date() }
+        });
+
+        res.json({
+          success: true,
+          message: "Buku berhasil dihapus"
+        });
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+};
+
+
+genrecontroller.ts
+import { Request, Response, NextFunction } from "express"
+
+export const createGenre = async (req: Request, res: Response, next: NextFunction) => {}
+export const getAllGenres = async (req: Request, res: Response, next: NextFunction) => {}
+export const getGenreDetail = async (req: Request, res: Response, next: NextFunction) => {}
+export const updateGenre = async (req: Request, res: Response, next: NextFunction) => {}
+export const deleteGenre = async (req: Request, res: Response, next: NextFunction) => {}
+
+
+bookcontroller.ts
+import { Request, Response, NextFunction } from "express"
+import { db } from "../db"
+import { z } from "zod"
+
+export const createBook = async (req: Request, res: Response, next: NextFunction) => {}
+export const getAllBooks = async (req: Request, res: Response, next: NextFunction) => {}
+export const getBooksByGenre = async (req: Request, res: Response, next: NextFunction) => {}
+export const getBookDetail = async (req: Request, res: Response, next: NextFunction) => {}
+export const updateBook = async (req: Request, res: Response, next: NextFunction) => {}
+export const deleteBook = async (req: Request, res: Response, next: NextFunction) => {}

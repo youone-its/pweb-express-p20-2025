@@ -5,14 +5,12 @@ import jwt from "jsonwebtoken";
 import { db } from "../db";
 import { AppError, AuthRequest, authMiddleware } from "../middleware";
 
-// ============ AUTH ROUTES ============
 export const setupAuthRoutes = (app: Express) => {
-  // POST /auth/register - Register user baru
   app.post(
     "/auth/register",
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        console.log('📥 Register request received:', req.body);
+        console.log('Register request received:', req.body);
         
         const { email, password, username } = z.object({
           email: z.string().email("Email tidak valid"),
@@ -20,21 +18,18 @@ export const setupAuthRoutes = (app: Express) => {
           username: z.string().optional()
         }).parse(req.body);
 
-        console.log('✅ Validation passed');
+        console.log('Validation passed');
 
-        // Cek apakah email sudah terdaftar
-        console.log('🔍 Checking existing user...');
+        console.log('Checking existing user...');
         const existingUser = await db.users.findUnique({ where: { email } });
         if (existingUser) {
           throw new AppError("Email sudah terdaftar", 400);
         }
 
-        console.log('🔐 Hashing password...');
-        // Hash password
+        console.log('Hashing password...');
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        console.log('💾 Creating user...');
-        // Create user
+        console.log('Creating user...');
         const user = await db.users.create({
           data: {
             email,
@@ -49,7 +44,7 @@ export const setupAuthRoutes = (app: Express) => {
           }
         });
 
-        console.log('✅ User created successfully:', user.email);
+        console.log('User created successfully:', user.email);
 
         res.status(201).json({
           success: true,
@@ -57,44 +52,40 @@ export const setupAuthRoutes = (app: Express) => {
           data: user
         });
       } catch (error) {
-        console.error('❌ Register error:', error);
+        console.error('Register error:', error);
         next(error);
       }
     }
   );
 
-  // POST /auth/login - Login dengan JWT
   app.post(
     "/auth/login",
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        console.log('📥 Login request received:', req.body.email);
+        console.log('Login request received:', req.body.email);
         
         const { email, password } = z.object({
           email: z.string().email("Email tidak valid"),
           password: z.string().min(1, "Password tidak boleh kosong")
         }).parse(req.body);
 
-        // Cari user berdasarkan email
         const user = await db.users.findUnique({ where: { email } });
         if (!user) {
           throw new AppError("Email atau password salah", 401);
         }
 
-        // Verifikasi password
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
           throw new AppError("Email atau password salah", 401);
         }
 
-        // Generate JWT token
         const token = jwt.sign(
           { userId: user.id.toString() },
           process.env.JWT_SECRET!,
           { expiresIn: "7d" }
         );
 
-        console.log('✅ Login successful:', user.email);
+        console.log('Login successful:', user.email);
 
         res.json({
           success: true,
@@ -109,13 +100,12 @@ export const setupAuthRoutes = (app: Express) => {
           }
         });
       } catch (error) {
-        console.error('❌ Login error:', error);
+        console.error('Login error:', error);
         next(error);
       }
     }
   );
 
-  // GET /auth/me - Get profil user yang sedang login
   app.get(
     "/auth/me",
     authMiddleware,
@@ -147,9 +137,7 @@ export const setupAuthRoutes = (app: Express) => {
   );
 };
 
-// ============ GENRE ROUTES ============
 export const setupGenreRoutes = (app: Express) => {
-  // POST /genre - Create genre baru
   app.post(
     "/genre",
     authMiddleware,
@@ -159,7 +147,6 @@ export const setupGenreRoutes = (app: Express) => {
           name: z.string().min(1, "Nama genre tidak boleh kosong")
         }).parse(req.body);
 
-        // Cek duplikasi nama genre
         const existingGenre = await db.genres.findFirst({
           where: { name, deleted_at: null }
         });
@@ -182,7 +169,6 @@ export const setupGenreRoutes = (app: Express) => {
     }
   );
 
-  // GET /genre - List semua genre
   app.get(
     "/genre",
     async (req: Request, res: Response, next: NextFunction) => {
@@ -207,7 +193,6 @@ export const setupGenreRoutes = (app: Express) => {
     }
   );
 
-  // GET /genre/:genre_id - Get detail genre
   app.get(
     "/genre/:genre_id",
     async (req: Request, res: Response, next: NextFunction) => {
@@ -240,7 +225,6 @@ export const setupGenreRoutes = (app: Express) => {
     }
   );
 
-  // PATCH /genre/:genre_id - Update genre
   app.patch(
     "/genre/:genre_id",
     authMiddleware,
@@ -255,7 +239,6 @@ export const setupGenreRoutes = (app: Express) => {
           name: z.string().min(1, "Nama genre tidak boleh kosong")
         }).parse(req.body);
 
-        // Cek apakah genre ada
         const existingGenre = await db.genres.findFirst({
           where: { id: genreId, deleted_at: null }
         });
@@ -263,7 +246,6 @@ export const setupGenreRoutes = (app: Express) => {
           throw new AppError("Genre tidak ditemukan", 404);
         }
 
-        // Cek duplikasi nama (selain genre ini sendiri)
         const duplicateGenre = await db.genres.findFirst({
           where: {
             name,
@@ -291,7 +273,6 @@ export const setupGenreRoutes = (app: Express) => {
     }
   );
 
-  // DELETE /genre/:genre_id - Soft delete genre (buku tidak ikut terhapus)
   app.delete(
     "/genre/:genre_id",
     authMiddleware,
@@ -310,7 +291,6 @@ export const setupGenreRoutes = (app: Express) => {
           throw new AppError("Genre tidak ditemukan", 404);
         }
 
-        // Soft delete genre (set deleted_at)
         await db.genres.update({
           where: { id: genreId },
           data: { deleted_at: new Date() }
@@ -327,9 +307,7 @@ export const setupGenreRoutes = (app: Express) => {
   );
 };
 
-// ============ BOOK ROUTES ============
 export const setupBookRoutes = (app: Express) => {
-  // POST /books - Create buku baru
   app.post(
     "/books",
     authMiddleware,
@@ -348,7 +326,6 @@ export const setupBookRoutes = (app: Express) => {
 
         const genreId = typeof genre_id === 'string' ? parseInt(genre_id) : genre_id;
 
-        // Cek duplikasi judul buku
         const existingBook = await db.books.findFirst({
           where: { title, deleted_at: null }
         });
@@ -356,7 +333,6 @@ export const setupBookRoutes = (app: Express) => {
           throw new AppError("Buku dengan judul ini sudah ada", 400);
         }
 
-        // Cek apakah genre ada
         const genre = await db.genres.findFirst({
           where: { id: genreId, deleted_at: null }
         });
@@ -391,7 +367,6 @@ export const setupBookRoutes = (app: Express) => {
     }
   );
 
-  // GET /books - List semua buku dengan filter dan pagination
   app.get(
     "/books",
     async (req: Request, res: Response, next: NextFunction) => {
@@ -403,7 +378,6 @@ export const setupBookRoutes = (app: Express) => {
 
         const where: any = { deleted_at: null };
 
-        // Filter pencarian berdasarkan title atau writer
         if (search) {
           where.OR = [
             { title: { contains: search, mode: 'insensitive' } },
@@ -438,7 +412,6 @@ export const setupBookRoutes = (app: Express) => {
     }
   );
 
-  // GET /books/genre/:genre_id - List buku berdasarkan genre dengan pagination
   app.get(
     "/books/genre/:genre_id",
     async (req: Request, res: Response, next: NextFunction) => {
@@ -453,7 +426,6 @@ export const setupBookRoutes = (app: Express) => {
         const search = req.query.search as string || '';
         const skip = (page - 1) * limit;
 
-        // Cek apakah genre ada
         const genre = await db.genres.findFirst({
           where: { id: genreId, deleted_at: null }
         });
@@ -463,7 +435,6 @@ export const setupBookRoutes = (app: Express) => {
 
         const where: any = { genre_id: genreId, deleted_at: null };
 
-        // Filter pencarian
         if (search) {
           where.OR = [
             { title: { contains: search, mode: 'insensitive' } },
@@ -498,7 +469,6 @@ export const setupBookRoutes = (app: Express) => {
     }
   );
 
-  // GET /books/:book_id - Get detail buku
   app.get(
     "/books/:book_id",
     async (req: Request, res: Response, next: NextFunction) => {
@@ -527,7 +497,6 @@ export const setupBookRoutes = (app: Express) => {
     }
   );
 
-  // PATCH /books/:book_id - Update buku
   app.patch(
     "/books/:book_id",
     authMiddleware,
@@ -552,7 +521,6 @@ export const setupBookRoutes = (app: Express) => {
 
         const data = updateSchema.parse(req.body);
 
-        // Cek apakah buku ada
         const existingBook = await db.books.findFirst({
           where: { id: bookId, deleted_at: null }
         });
@@ -560,7 +528,6 @@ export const setupBookRoutes = (app: Express) => {
           throw new AppError("Buku tidak ditemukan", 404);
         }
 
-        // Cek duplikasi judul jika title diupdate
         if (data.title && data.title !== existingBook.title) {
           const duplicateBook = await db.books.findFirst({
             where: { title: data.title, deleted_at: null, id: { not: bookId } }
@@ -570,7 +537,6 @@ export const setupBookRoutes = (app: Express) => {
           }
         }
 
-        // Cek genre jika genre_id diupdate
         if (data.genre_id) {
           const genreId = typeof data.genre_id === 'string' ? parseInt(data.genre_id) : data.genre_id;
           const genre = await db.genres.findFirst({
@@ -599,7 +565,6 @@ export const setupBookRoutes = (app: Express) => {
     }
   );
 
-  // DELETE /books/:book_id - Soft delete buku (transaksi tidak ikut terhapus)
   app.delete(
     "/books/:book_id",
     authMiddleware,
@@ -618,7 +583,6 @@ export const setupBookRoutes = (app: Express) => {
           throw new AppError("Buku tidak ditemukan", 404);
         }
 
-        // Soft delete buku (set deleted_at)
         await db.books.update({
           where: { id: bookId },
           data: { deleted_at: new Date() }

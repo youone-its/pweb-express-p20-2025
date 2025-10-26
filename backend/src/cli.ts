@@ -68,11 +68,11 @@ class BookStoreCLI {
   }
 
   private error(message: string): void {
-    console.log('\n❌ Error: ' + message);
+    console.log('\nError: ' + message);
   }
 
   private success(message: string): void {
-    console.log('\n✅ ' + message);
+    console.log('\n' + message);
   }
 
   private setAuthHeader(): void {
@@ -111,6 +111,7 @@ class BookStoreCLI {
       this.currentUser = res.data.data.user;
       this.setAuthHeader();
       this.success(`Logged in as ${this.currentUser!.email}`);
+      this.success(`token ${this.token}`);
     } catch (err: any) {
       this.error(err.response?.data?.message || 'Login failed');
     }
@@ -214,7 +215,6 @@ class BookStoreCLI {
 
     this.log('=== CREATE BOOK ===');
     
-    // Fetch genres untuk dipilih
     let genres: Genre[] = [];
     try {
       const res = await this.api.get('/genre');
@@ -229,7 +229,6 @@ class BookStoreCLI {
       return;
     }
 
-    // Tampilkan daftar genre
     this.log('Available Genres:');
     genres.forEach((g, idx) => {
       console.log(`${idx + 1}. ${g.name}`);
@@ -240,14 +239,11 @@ class BookStoreCLI {
     let genreId: string | null = null;
     let selectedGenreName: string | null = null;
 
-    // Check if input is number
     const genreNumber = parseInt(genreInput);
     if (!isNaN(genreNumber) && genreNumber > 0 && genreNumber <= genres.length) {
-      // Input adalah nomor
       genreId = genres[genreNumber - 1].id;
       selectedGenreName = genres[genreNumber - 1].name;
     } else {
-      // Input adalah string (nama genre)
       const foundGenre = genres.find(g => g.name.toLowerCase() === genreInput.toLowerCase());
       if (foundGenre) {
         genreId = foundGenre.id;
