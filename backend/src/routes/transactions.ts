@@ -4,33 +4,28 @@ import { db } from "../db";
 import { AppError, AuthRequest, authMiddleware } from "../middleware";
 
 export const setupTransactionRoutes = (app: Express) => {
-  console.log("Setting up transaction routes...");
-
+  
+  // POST /transactions - Create new transaction
   app.post(
     "/transactions",
     authMiddleware,
     async (req: AuthRequest, res: Response, next: NextFunction) => {
       try {
-        const { items } = z
-          .object({
-            items: z
-              .array(
-                z.object({
-                  book_id: z
-                    .string()
-                    .or(z.number())
-                    .transform((val) =>
-                      typeof val === "string" ? parseInt(val) : val
-                    ),
-                  quantity: z.number().int().min(1, "Quantity minimal 1"),
-                })
-              )
-              .min(1, "Minimal 1 item dalam order"),
-          })
-          .parse(req.body);
+        const { items } = z.object({
+          items: z.array(
+            z.object({
+              book_id: z
+                .string()
+                .or(z.number())
+                .transform((val) => typeof val === "string" ? parseInt(val) : val),
+              quantity: z.number().int().min(1, "Quantity minimal 1"),
+            })
+          ).min(1, "Minimal 1 item dalam order"),
+        }).parse(req.body);
 
         const userId = parseInt(req.userId!);
 
+        // Validasi dan ambil detail semua buku
         const bookDetails = [];
         for (const item of items) {
           const book = await db.books.findFirst({
@@ -45,6 +40,7 @@ export const setupTransactionRoutes = (app: Express) => {
             );
           }
 
+          // Cek stok
           if (book.stock_quantity < item.quantity) {
             throw new AppError(
               `Stok buku "${book.title}" tidak mencukupi. Stok tersedia: ${book.stock_quantity}`,
@@ -55,6 +51,7 @@ export const setupTransactionRoutes = (app: Express) => {
           bookDetails.push({ book, quantity: item.quantity });
         }
 
+        // Create order
         const order = await db.orders.create({
           data: {
             user_id: userId,
@@ -78,6 +75,7 @@ export const setupTransactionRoutes = (app: Express) => {
           },
         });
 
+        // Update stok buku
         for (const detail of bookDetails) {
           await db.books.update({
             where: { id: detail.book.id },
@@ -87,6 +85,7 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         }
 
+        // Hitung total harga
         const total = order.order_items.reduce(
           (sum, item) => sum + Number(item.book.price) * item.quantity,
           0
@@ -103,14 +102,18 @@ export const setupTransactionRoutes = (app: Express) => {
     }
   );
 
+  // GET /transactions - List semua transaksi user dengan search & sort
   app.get(
     "/transactions",
     authMiddleware,
     async (req: AuthRequest, res: Response, next: NextFunction) => {
       try {
         const userId = parseInt(req.userId!);
+        const search = req.query.search as string || '';
+        const sortBy = req.query.sortBy as string || 'created_at';
 
-        const orders = await db.orders.findMany({
+        // Get all orders for user
+        let orders = await db.orders.findMany({
           where: { user_id: userId },
           include: {
             order_items: {
@@ -126,13 +129,29 @@ export const setupTransactionRoutes = (app: Express) => {
           orderBy: { created_at: "desc" },
         });
 
-        const ordersWithTotal = orders.map((order) => {
+        // Calculate total for each order
+        let ordersWithTotal = orders.map((order) => {
           const total = order.order_items.reduce(
             (sum, item) => sum + Number(item.book.price) * item.quantity,
             0
           );
           return { ...order, total };
         });
+
+        // Search by transaction ID
+        if (search) {
+          const searchId = parseInt(search);
+          if (!isNaN(searchId)) {
+            ordersWithTotal = ordersWithTotal.filter(o => o.id === searchId);
+          }
+        }
+
+        // Sort by price
+        if (sortBy === 'price') {
+          ordersWithTotal.sort((a, b) => a.total - b.total);
+        } else if (sortBy === 'price_desc') {
+          ordersWithTotal.sort((a, b) => b.total - a.total);
+        }
 
         res.json({
           success: true,
@@ -144,15 +163,13 @@ export const setupTransactionRoutes = (app: Express) => {
     }
   );
 
-  console.log("Registering /transactions/statistics route");
+  // GET /transactions/statistics - Get statistik penjualan (HARUS SEBELUM /:transaction_id)
   app.get(
     "/transactions/statistics",
     authMiddleware,
     async (req: Request, res: Response, next: NextFunction) => {
       try {
-        console.log("Statistics endpoint HIT!");
-        console.log("Statistics request received");
-
+        // Ambil semua transaksi
         const orders = await db.orders.findMany({
           include: {
             order_items: {
@@ -179,8 +196,10 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         }
 
+        // Hitung total transaksi
         const totalTransactions = orders.length;
 
+        // Hitung total amount dan rata-rata
         const totalAmount = orders.reduce((sum, order) => {
           const orderTotal = order.order_items.reduce(
             (itemSum, item) =>
@@ -191,6 +210,7 @@ export const setupTransactionRoutes = (app: Express) => {
         }, 0);
         const avgTransaction = totalAmount / totalTransactions;
 
+        // Hitung genre popularity
         const genreCounts: { [key: string]: number } = {};
 
         orders.forEach((order) => {
@@ -201,6 +221,7 @@ export const setupTransactionRoutes = (app: Express) => {
           });
         });
 
+        // Sort genre berdasarkan count
         const sortedGenres = Object.entries(genreCounts).sort(
           (a, b) => b[1] - a[1]
         );
@@ -211,8 +232,6 @@ export const setupTransactionRoutes = (app: Express) => {
           sortedGenres.length > 0
             ? sortedGenres[sortedGenres.length - 1][0]
             : null;
-
-        console.log("Statistics calculated successfully");
 
         res.json({
           success: true,
@@ -225,22 +244,17 @@ export const setupTransactionRoutes = (app: Express) => {
           },
         });
       } catch (error) {
-        console.error("Statistics error:", error);
         next(error);
       }
     }
   );
 
-  console.log("Registering /transactions/:transaction_id route");
+  // GET /transactions/:transaction_id - Get detail transaksi (HARUS SETELAH /statistics)
   app.get(
     "/transactions/:transaction_id",
     authMiddleware,
     async (req: AuthRequest, res: Response, next: NextFunction) => {
       try {
-        console.log(
-          "Transaction detail endpoint HIT with ID:",
-          req.params.transaction_id
-        );
         const transactionId = parseInt(req.params.transaction_id);
         if (isNaN(transactionId)) {
           throw new AppError("Transaction ID tidak valid", 400);
@@ -277,6 +291,7 @@ export const setupTransactionRoutes = (app: Express) => {
           throw new AppError("Transaksi tidak ditemukan", 404);
         }
 
+        // Hitung total
         const total = order.order_items.reduce(
           (sum, item) => sum + Number(item.book.price) * item.quantity,
           0
@@ -291,6 +306,4 @@ export const setupTransactionRoutes = (app: Express) => {
       }
     }
   );
-
-  console.log("Transaction routes setup complete");
 };
